@@ -9,17 +9,10 @@ if LooseVersion(sklearn.__version__) < LooseVersion("0.17"):
     raise Exception("treeinterpreter requires scikit-learn 0.17 or later")
 
 
-def _get_tree_paths(tree, node_id, it, depth=0):
+def _get_tree_paths(tree, node_id, depth=0):
     """
     Returns all paths through the tree as list of node_ids
-
-    it is the iteration number: this determines whether explanatory statements
-    are printed or not.
     """
-    if it == 0:
-        print('==== We\'re now using _get_tree_paths(). ====')
-        print('This is a recursive function that starts with the root node '
-        'and returns every decision path in the tree.')
     if node_id == _tree.TREE_LEAF: # unclear what this is
         raise ValueError("Invalid node_id %s" % _tree.TREE_LEAF)
 
@@ -38,8 +31,6 @@ def _get_tree_paths(tree, node_id, it, depth=0):
     else:
         paths = [[node_id]]
 
-    if it == 0:
-        print('==== Now going back to _predict_tree ====')
     return paths
 
 
@@ -53,50 +44,46 @@ def _predict_tree(model, X, it, joint_contribution=False):
     it is the iteration number: this determines whether explanatory statements
     are printed or not.
     """
-    print(f'Interpreting tree {it}')
-    if it == 0:
-        print('We are now using _predict_tree on the first tree. I\'ll explain '
-        'what\'s going on for this first tree so you get the idea, before we '
-        'do this for all trees.')
-        print('First, we will use sklearn\'s apply() function on our '
-        'test instances X. This function returns the leaf that each instance '
-        'ended up in after being run through its decision path.')
+    print(f'Interpreting tree {it+1}')
+
+    # First, we will use sklearn's apply() function on our
+    # test instances X. This function returns the leaf that each instance
+    # ended up in after being run through its decision path.
     leaves = model.apply(X)
-    if it == 0:
-        print('Now that we know what leaves each instance belongs to, we can '
-        'use the treeinterpreter _get_tree_paths to get the decision paths for '
-        'each instance.')
+
+    # Now that we know what leaves each instance belongs to, we can
+    # use the treeinterpreter _get_tree_paths to get the decision paths for
+    # each instance.
+    # _get_tree_paths() is a recursive function that starts with the root node
+    # and returns every decision path in the tree
     paths = _get_tree_paths(model.tree_, 0, it)
 
-    if it == 0:
-        print('Since _get_tree_paths returns the paths in order from root to '
-        'leaf, we have to reverse the paths.')
+    # Since _get_tree_paths returns the paths in order from root to leaf,
+    # we have to reverse the paths.
     for path in paths:
         path.reverse()
 
-    if it == 0:
-        print('Now that we\'ve gotten all the paths, we associate each path '
-        'with its leaf node by making a dictionary, where keys are '
-        'the leaf nodes, and values are the paths that lead to those nodes.')
+    # Now that we've gotten all the paths, we associate each path
+    # with its leaf node by making a dictionary, where keys are
+    # the leaf nodes, and values are the paths that lead to those nodes.
     leaf_to_path = {}
     #map leaves to paths
     for path in paths:
         leaf_to_path[path[-1]] = path
 
-    if it == 0:
-        print('Next, we\'ll get the constant prediction values at each node. '
-        'These are the means of all instances that arrive at each node.')
-    # remove the single-dimensional inner arrays
+    # Next, we'll get the constant prediction values at each node.
+    # These are the means of all instances that arrive at each node.
+
+    # get predictions and remove the single-dimensional inner arrays
     values = model.tree_.value.squeeze(axis=1)
     # reshape if squeezed into a single float
     if len(values.shape) == 0:
         values = np.array([values])
 
     if isinstance(model, DecisionTreeRegressor):
-        if it == 0:
-            print('Now we want to get the biases. Since the bias is the same for '
-            'every decision path in the same tree, we just give the same bias '
-            '(the mean of all instance labels at the root node) to every path.')
+        # Now we want to get the biases. Since the bias is the same for
+        # every decision path in the same tree, we just give the same bias
+        # (the mean of all instance labels at the root node) to every path.
         biases = np.full(X.shape[0], values[paths[0][0]]) # shape = number of samples
         line_shape = X.shape[1] # shape = number of features
 
@@ -109,24 +96,20 @@ def _predict_tree(model, X, it, joint_contribution=False):
         biases = np.tile(values[paths[0][0]], (X.shape[0], 1))
         line_shape = (X.shape[1], model.n_classes_)
 
-    if it == 0:
-        print('Next, we get the prediction made by each leaf.')
+    # Next, we get the prediction made by each leaf
     direct_prediction = values[leaves]
 
 
     # make into python lists, accessing values will be faster
     values_list = list(values)
     feature_index = list(model.tree_.feature)
-    feature_names = list(X.columns)
-    if it == 0:
-        print('Now we\'ll get the feature names, so we can later identify '
-        'which features correspond to which contributions.')
-        print(f'feature names: {feature_names}')
+    # get feature names, to use later
+    feature_names = list(X.columns) ## TODO make sure this works
 
     contributions = []
     if joint_contribution:
         if it == 0:
-            print('Since we\'ve chosen to look at join contributions, we\'ll '
+            print('==> Since we\'ve chosen to look at join contributions, we\'ll '
             'look at each path, starting at the top. We get the contribution of '
             'this first feature, then go to the next node, where we calculate '
             'the contribution of the second feature. Instead of reporting these '
@@ -169,15 +152,11 @@ def _predict_tree(model, X, it, joint_contribution=False):
                 contributions[row][tuple(sorted(path_features))] = \
                     contributions[row].get(tuple(sorted(path_features)), 0) + contrib
 
-        if it == 0:
-            print('Now we return the following: direct_prediction, of type '
-            f'{type(direct_prediction)}, biases, of type {type(biases)}, and '
-            f'contributions, of type {type(contributions)}')
         return direct_prediction, biases, contributions
 
     else:
         if it == 0:
-            print('Since we\'ve chosen to look at independent contributions, '
+            print('==> Since we\'ve chosen to look at independent contributions, '
             'we go down each decision path, '
             'calculate the difference between the current node and the next node, '
             'and assign that contribution to the feature that split the current '
@@ -189,7 +168,6 @@ def _predict_tree(model, X, it, joint_contribution=False):
         # each feature to each decision path
 
         for row, leaf in enumerate(unique_leaves):
-            print(f'Leaf number {row}')
             for path in paths:
                 if leaf == path[-1]:
                     break
@@ -199,7 +177,6 @@ def _predict_tree(model, X, it, joint_contribution=False):
             # have the dictionary leaf_to_path and that's how it's done above
 
             contribs = np.zeros(line_shape) # initializes array w len num_features
-            print(f'Initialize contribs: {contribs}')
             # go down the decision path, getting the contribution for each
             # feature that splits a node on the path. We make a contribs array
             # for every decision path
@@ -207,21 +184,15 @@ def _predict_tree(model, X, it, joint_contribution=False):
                 contrib = values_list[path[i+1]] - \
                          values_list[path[i]] # contrib is the amt that the mean
                          # is changed between this node and the next
-                print(f'Contrib for node {i}: {contrib}')
                 contribs[feature_index[path[i]]] += contrib # assign this
                 # contribution to the index in the contribs array that corresponds
                 # to the feature this node was split on
-                print(f'Contribs after node {i}: {contribs}')
             unique_contributions[leaf] = contribs # store the contributions for
             # this leaf in the dict
 
         for row, leaf in enumerate(leaves):
             contributions.append(unique_contributions[leaf])
 
-        if it == 0:
-            print('Now we return the following: direct_prediction, of type '
-            f'{type(direct_prediction)}, biases, of type {type(biases)}, and '
-            f'contributions, of type {type(contributions)}')
         return direct_prediction, biases, np.array(contributions)
 
 
@@ -282,11 +253,7 @@ def _predict_forest(model, X, joint_contribution=False):
         mean_bias = None
         mean_contribution = None
 
-        print('For every tree, call _predict_tree(), which gives us the feature '
-        'contributions for all features for each instance in each tree, '
-        'and average the results into mean prediction, mean bias, and mean '
-        'contribution using _iterative_mean(): this gives us the average feature '
-        'contribution of each feature for each instance across the forest. ')
+        print('==> For every tree, we call _predict_tree():')
         for i, tree in enumerate(model.estimators_):
             pred, bias, contribution = _predict_tree(tree, X, i)
 
@@ -298,6 +265,10 @@ def _predict_forest(model, X, joint_contribution=False):
                 mean_bias = _iterative_mean(i, mean_bias, bias)
                 mean_contribution = _iterative_mean(i, mean_contribution, contribution)
                 mean_pred = _iterative_mean(i, mean_pred, pred)
+
+        print('=== Back in _predict_forest() ===')
+        print('==> Now that we have the contributions for each instance in '
+        'each tree, we average the results across the forest.')
 
         return mean_pred, mean_bias, mean_contribution
 
